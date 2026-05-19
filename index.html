@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carnet de Bord — Recherche d'Emploi</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, push, update, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBvBaukSevRsjT5Y7CKrT-B7hot5Q3hPV4",
+    authDomain: "carnet-de-bors.firebaseapp.com",
+    databaseURL: "https://carnet-de-bors-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "carnet-de-bors",
+    storageBucket: "carnet-de-bors.firebasestorage.app",
+    messagingSenderId: "666084545842",
+    appId: "1:666084545842:web:fb00190e5148558d37b32b"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const rowsRef = ref(db, "candidatures");
+  window._fb = { db, ref, onValue, push, update, remove, rowsRef };
+  window.dispatchEvent(new Event("firebase-ready"));
+</script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --ink: #1a1a2e; --paper: #f5f0e8; --cream: #ede8dc; --accent: #c0392b;
+    --gold: #d4a843; --muted: #8a8070; --line: #d0c8b8;
+    --success: #2d6a4f; --pending: #d4a843; --rejected: #c0392b;
+  }
+  body { background: var(--paper); font-family: 'DM Sans', sans-serif; color: var(--ink); min-height: 100vh; padding: 2rem; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E"); pointer-events: none; z-index: 1000; opacity: 0.5; }
+
+  /* Migration banner */
+  .migration-banner { display: none; background: #fff8e1; border: 2px solid var(--gold); padding: 1rem 1.4rem; margin-bottom: 1.5rem; }
+  .migration-banner.visible { display: block; }
+  .migration-title { font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: #7a5f00; margin-bottom: 0.4rem; }
+  .migration-text { font-size: 0.85rem; color: #5a4400; margin-bottom: 0.8rem; }
+  .migration-btns { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .migration-btn { font-family: 'DM Mono', monospace; font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.5rem 1rem; border: 1.5px solid #7a5f00; background: transparent; color: #7a5f00; cursor: pointer; transition: all 0.15s; }
+  .migration-btn.confirm { background: var(--gold); border-color: var(--gold); color: #1a1a2e; font-weight: 500; }
+  .migration-btn.confirm:hover { background: #c49a2a; }
+  .migration-btn:hover { background: #fff0b0; }
+
+  .sync-bar { display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 1.5rem; color: var(--muted); }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; transition: background 0.4s; }
+  .sync-dot.connected { background: var(--success); box-shadow: 0 0 6px #2d6a4f88; }
+  .sync-dot.syncing { background: var(--gold); animation: pulse 1s infinite; }
+  .sync-dot.error { background: var(--rejected); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+
+  .header { text-align: center; margin-bottom: 1.5rem; }
+  .header::before { content: ''; display: block; width: 60px; height: 3px; background: var(--accent); margin: 0 auto 1.2rem; }
+  h1 { font-family: 'Playfair Display', serif; font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+  h1 span { color: var(--accent); font-style: italic; }
+  .subtitle { font-family: 'DM Mono', monospace; font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-top: 0.6rem; }
+
+  .stats { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .stat-card { flex: 1; min-width: 110px; background: var(--cream); border: 1px solid var(--line); padding: 1rem 1.2rem; position: relative; overflow: hidden; }
+  .stat-card::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .stat-card.total::after { background: var(--ink); }
+  .stat-card.pending::after { background: var(--pending); }
+  .stat-card.replied::after { background: var(--success); }
+  .stat-card.rejected::after { background: var(--rejected); }
+  .stat-label { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .stat-value { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; margin-top: 0.2rem; line-height: 1; }
+
+  .controls { display: flex; gap: 0.8rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center; }
+  .btn { font-family: 'DM Mono', monospace; font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.6rem 1.2rem; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn:hover { background: var(--ink); color: var(--paper); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: #a93226; }
+  .search-box { flex: 1; min-width: 180px; font-family: 'DM Mono', monospace; font-size: 0.78rem; padding: 0.6rem 1rem; border: 1.5px solid var(--line); background: var(--cream); color: var(--ink); outline: none; }
+  .search-box:focus { border-color: var(--ink); }
+
+  .table-wrap { overflow-x: auto; border: 1.5px solid var(--ink); background: white; }
+  table { width: 100%; border-collapse: collapse; min-width: 950px; }
+  thead tr { background: var(--ink); color: var(--paper); }
+  th { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.9rem 0.75rem; text-align: left; font-weight: 500; white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.1); }
+  th:last-child { border-right: none; }
+  td { padding: 0.7rem 0.75rem; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); font-size: 0.82rem; vertical-align: middle; }
+  td:last-child { border-right: none; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: var(--cream); }
+  tbody tr:hover { background: #e8e0d0; }
+  td[contenteditable="true"] { outline: none; cursor: text; }
+  td[contenteditable="true"]:focus { background: #fff9ee; box-shadow: inset 0 0 0 2px var(--gold); }
+
+  .status-select { font-family: 'DM Mono', monospace; font-size: 0.63rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.25rem 0.4rem; border: 1.5px solid currentColor; background: transparent; cursor: pointer; font-weight: 500; outline: none; width: 100%; }
+  .s-attente { color: var(--pending); }
+  .s-reponse { color: var(--success); }
+  .s-refus { color: var(--rejected); }
+  .s-entretien { color: #2980b9; }
+  .mode-select { font-family: 'DM Mono', monospace; font-size: 0.63rem; padding: 0.25rem 0.4rem; border: 1px solid var(--line); background: var(--cream); cursor: pointer; outline: none; width: 100%; }
+  .link-cell a { color: #2980b9; font-family: 'DM Mono', monospace; font-size: 0.65rem; text-decoration: none; }
+  .link-cell a:hover { text-decoration: underline; }
+  .del-btn { font-size: 0.9rem; background: none; border: none; cursor: pointer; color: var(--muted); padding: 0.2rem 0.4rem; transition: color 0.15s; }
+  .del-btn:hover { color: var(--accent); }
+  .empty-row td { text-align: center; padding: 3rem; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 0.75rem; letter-spacing: 0.1em; }
+  .footer { margin-top: 1.2rem; font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; text-align: center; }
+
+  .loading-overlay { position: fixed; inset: 0; background: var(--paper); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; z-index: 999; transition: opacity 0.4s; }
+  .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-spinner { width: 32px; height: 32px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'DM Mono', monospace; font-size: 0.75rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(26,26,46,0.6); z-index: 500; backdrop-filter: blur(2px); align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--paper); border: 2px solid var(--ink); padding: 2rem; width: 90%; max-width: 560px; animation: slideUp 0.2s ease; max-height: 92vh; overflow-y: auto; }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; margin-bottom: 1.2rem; }
+  .url-zone { background: var(--cream); border: 1.5px dashed var(--line); padding: 1rem 1.2rem; margin-bottom: 1.2rem; transition: border-color 0.2s; }
+  .url-zone:focus-within { border-color: var(--accent); }
+  .url-zone-label { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem; }
+  .magic { color: var(--accent); }
+  .url-input-row { display: flex; gap: 0.6rem; }
+  .url-input { flex: 1; font-family: 'DM Mono', monospace; font-size: 0.75rem; padding: 0.55rem 0.75rem; border: 1.5px solid var(--line); background: white; color: var(--ink); outline: none; }
+  .url-input:focus { border-color: var(--ink); }
+  .fetch-btn { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.55rem 1rem; border: 1.5px solid var(--accent); background: var(--accent); color: white; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+  .fetch-btn:hover:not(:disabled) { background: #a93226; }
+  .fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .fetch-status { margin-top: 0.6rem; font-family: 'DM Mono', monospace; font-size: 0.68rem; min-height: 1.4em; display: flex; align-items: center; gap: 0.4rem; }
+  .fetch-status.loading { color: var(--gold); }
+  .fetch-status.success { color: var(--success); }
+  .fetch-status.error { color: var(--rejected); }
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+  .divider { display: flex; align-items: center; gap: 0.8rem; margin: 1rem 0; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .divider span { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+  .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .form-group.full { grid-column: 1 / -1; }
+  label { font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  input, select, textarea { font-family: 'DM Sans', sans-serif; font-size: 0.85rem; padding: 0.55rem 0.75rem; border: 1.5px solid var(--line); background: white; color: var(--ink); outline: none; transition: border-color 0.15s, background 0.4s; }
+  input:focus, select:focus, textarea:focus { border-color: var(--ink); }
+  textarea { resize: vertical; min-height: 60px; }
+  .modal-btns { display: flex; gap: 0.8rem; justify-content: flex-end; }
+  .field-filled { border-color: var(--success) !important; background: #f0faf5 !important; }
+
+  @media (max-width: 640px) {
+    body { padding: 1rem; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-group.full { grid-column: 1; }
+    .controls { flex-direction: column; }
+    .search-box { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Connexion à Firebase…</div>
+</div>
+
+<div class="header">
+  <h1>Carnet de <span>Bord</span></h1>
+  <p class="subtitle">Suivi de recherche d'emploi</p>
+</div>
+
+<div class="sync-bar">
+  <div class="sync-dot" id="syncDot"></div>
+  <span id="syncLabel">Connexion…</span>
+</div>
+
+<!-- Migration banner -->
+<div class="migration-banner" id="migrationBanner">
+  <div class="migration-title">⚠ Candidatures locales détectées</div>
+  <div class="migration-text" id="migrationText"></div>
+  <div class="migration-btns">
+    <button class="migration-btn confirm" onclick="doMigration()">✓ Importer vers Firebase</button>
+    <button class="migration-btn" onclick="dismissMigration()">Ignorer (garder seulement Firebase)</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card total"><div class="stat-label">Total</div><div class="stat-value" id="stat-total">0</div></div>
+  <div class="stat-card pending"><div class="stat-label">En attente</div><div class="stat-value" id="stat-pending">0</div></div>
+  <div class="stat-card replied"><div class="stat-label">Entretiens</div><div class="stat-value" id="stat-entretien">0</div></div>
+  <div class="stat-card rejected"><div class="stat-label">Refus</div><div class="stat-value" id="stat-refus">0</div></div>
+</div>
+
+<div class="controls">
+  <button class="btn primary" onclick="openModal()">+ Ajouter une candidature</button>
+  <input class="search-box" type="text" id="searchInput" placeholder="Rechercher…" oninput="renderTable()">
+  <button class="btn" onclick="exportCSV()">↓ CSV</button>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th><th>Réf.</th><th>Poste</th><th>Entreprise</th>
+        <th>Mode</th><th>Statut</th><th>Rép. le</th>
+        <th>Lien</th><th>Observations</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<p class="footer">☁ Synchronisé en temps réel · Accessible depuis tous vos appareils</p>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <h2>Nouvelle candidature</h2>
+    <div class="url-zone">
+      <div class="url-zone-label"><span class="magic">✦</span> Lien de l'annonce — analyse automatique par IA</div>
+      <div class="url-input-row">
+        <input class="url-input" type="url" id="f-url" placeholder="https://www.indeed.fr/… hellowork… linkedin…">
+        <button class="fetch-btn" id="fetchBtn" onclick="fetchAndFill()">Analyser →</button>
+      </div>
+      <div class="fetch-status" id="fetchStatus"></div>
+    </div>
+    <div class="divider"><span>ou remplir manuellement</span></div>
+    <div class="form-grid">
+      <div class="form-group"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="form-group"><label>N° / Réf.</label><input type="text" id="f-ref" placeholder="ex: 2024-001"></div>
+      <div class="form-group full"><label>Poste</label><input type="text" id="f-poste" placeholder="ex: Développeur Web"></div>
+      <div class="form-group full"><label>Entreprise (Contact)</label><input type="text" id="f-entreprise" placeholder="ex: ACME Corp — Marie Dupont"></div>
+      <div class="form-group">
+        <label>Mode de candidature</label>
+        <select id="f-mode">
+          <option>Site web</option><option>Email</option><option>Téléphone</option><option>Courrier</option>
+          <option>LinkedIn</option><option>Indeed</option><option>France Travail</option>
+          <option>APEC</option><option>HelloWork</option><option>Cabinet RH</option>
+          <option>Spontanée</option><option>Autre</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Contrat</label>
+        <select id="f-contrat">
+          <option value="">—</option><option>CDI</option><option>CDD</option>
+          <option>Intérim</option><option>Stage</option><option>Alternance</option><option>Freelance</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Lieu</label><input type="text" id="f-lieu" placeholder="ex: Paris, Télétravail…"></div>
+      <div class="form-group"><label>Salaire estimé</label><input type="text" id="f-salaire" placeholder="ex: 35–40 k€"></div>
+      <div class="form-group full"><label>Observations</label><textarea id="f-obs" placeholder="Notes, compétences requises, impressions…"></textarea></div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" onclick="closeModal()">Annuler</button>
+      <button class="btn primary" onclick="addRow()">Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+await new Promise(resolve => {
+  if (window._fb) return resolve();
+  window.addEventListener("firebase-ready", resolve, { once: true });
+});
+
+const { db, ref, onValue, push, update, remove, rowsRef } = window._fb;
+
+let rows = [];
+let localBackup = null; // candidatures trouvées dans localStorage
+
+// ─── Cherche les anciennes données dans TOUS les localStorage connus ──────────
+function findLocalData() {
+  const keys = ["carnetBord_v3", "carnetBord_v2", "carnetBord"];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data) && data.length > 0) {
+          return { key, data };
+        }
+      }
+    } catch(e) {}
+  }
+  return null;
+}
+
+// ─── Sync status ──────────────────────────────────────────────────────────────
+function setSyncStatus(state, label) {
+  document.getElementById("syncDot").className = "sync-dot " + state;
+  document.getElementById("syncLabel").textContent = label;
+}
+
+// ─── Firebase listener ────────────────────────────────────────────────────────
+setSyncStatus("syncing", "Connexion…");
+
+onValue(rowsRef, (snapshot) => {
+  const data = snapshot.val() || {};
+  rows = Object.entries(data).map(([key, val]) => ({ _key: key, ...val }));
+  rows.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  renderTable();
+  updateStats();
+  setSyncStatus("connected", "Synchronisé ☁");
+  document.getElementById("loadingOverlay").classList.add("hidden");
+
+  // Après chargement Firebase, vérifier s'il y a des données locales à migrer
+  // Seulement si Firebase est vide OU si on n'a pas encore migré
+  const migrated = localStorage.getItem("carnet_migrated");
+  if (!migrated) {
+    const found = findLocalData();
+    if (found && found.data.length > 0) {
+      localBackup = found;
+      document.getElementById("migrationText").textContent =
+        `${found.data.length} candidature(s) trouvée(s) sur cet appareil (sauvegarde locale). Voulez-vous les importer dans Firebase pour les avoir sur tous vos appareils ?`;
+      document.getElementById("migrationBanner").classList.add("visible");
+    }
+  }
+}, (error) => {
+  setSyncStatus("error", "Erreur de connexion");
+  document.getElementById("loadingOverlay").classList.add("hidden");
+});
+
+// ─── Migration localStorage → Firebase ───────────────────────────────────────
+window.doMigration = async function() {
+  if (!localBackup) return;
+  setSyncStatus("syncing", "Migration en cours…");
+  document.getElementById("migrationBanner").style.opacity = "0.5";
+  document.getElementById("migrationBanner").style.pointerEvents = "none";
+
+  let count = 0;
+  for (const row of localBackup.data) {
+    const { id, _key, ...clean } = row; // retire les champs inutiles
+    clean.createdAt = clean.createdAt || id || Date.now();
+    try {
+      await push(rowsRef, clean);
+      count++;
+    } catch(e) { console.error("Erreur migration ligne", e); }
+  }
+
+  // Marquer comme migré pour ne plus redemander
+  localStorage.setItem("carnet_migrated", "true");
+  document.getElementById("migrationBanner").classList.remove("visible");
+  setSyncStatus("connected", `${count} candidatures importées ✓`);
+  setTimeout(() => setSyncStatus("connected", "Synchronisé ☁"), 3000);
+}
+
+window.dismissMigration = function() {
+  localStorage.setItem("carnet_migrated", "true");
+  document.getElementById("migrationBanner").classList.remove("visible");
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function sClass(s) {
+  return s === "En attente" ? "s-attente" : s === "Refus" ? "s-refus" : s === "Entretien" ? "s-entretien" : "s-reponse";
+}
+
+function detectMode(url = "") {
+  const u = url.toLowerCase();
+  if (u.includes("linkedin")) return "LinkedIn";
+  if (u.includes("indeed")) return "Indeed";
+  if (u.includes("francetravail") || u.includes("pole-emploi")) return "France Travail";
+  if (u.includes("apec")) return "APEC";
+  if (u.includes("hellowork")) return "HelloWork";
+  return "Site web";
+}
+
+function setField(id, val) {
+  const el = document.getElementById(id);
+  if (!el || !val) return false;
+  el.value = val;
+  el.classList.add("field-filled");
+  setTimeout(() => el.classList.remove("field-filled"), 3000);
+  return true;
+}
+
+function setSelect(id, val) {
+  if (!val) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  for (const opt of el.options) {
+    if (opt.value.toLowerCase().includes(val.toLowerCase()) || val.toLowerCase().includes(opt.value.toLowerCase())) {
+      el.value = opt.value; return;
+    }
+  }
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+window.renderTable = function() {
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  const filtered = q
+    ? rows.filter(r => [r.poste, r.entreprise, r.ref, r.obs, r.mode, r.lieu].some(v => (v||"").toLowerCase().includes(q)))
+    : rows;
+
+  const tbody = document.getElementById("tableBody");
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="10">Aucune candidature · Cliquez sur "+ Ajouter" pour commencer</td></tr>`;
+    return;
+  }
+
+  const MODES = ["Site web","Email","Téléphone","Courrier","LinkedIn","Indeed","France Travail","APEC","HelloWork","Cabinet RH","Spontanée","Autre"];
+
+  tbody.innerHTML = filtered.map(r => `
+    <tr data-key="${r._key}">
+      <td contenteditable="true" onblur="editCell('${r._key}','date',this)" style="font-family:'DM Mono',monospace;font-size:0.75rem">${r.date||""}</td>
+      <td contenteditable="true" onblur="editCell('${r._key}','ref',this)" style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--muted)">${r.ref||""}</td>
+      <td contenteditable="true" onblur="editCell('${r._key}','poste',this)"><strong>${r.poste||""}</strong></td>
+      <td contenteditable="true" onblur="editCell('${r._key}','entreprise',this)">${r.entreprise||""}</td>
+      <td><select class="mode-select" onchange="editCell('${r._key}','mode',this)">
+        ${MODES.map(m => `<option ${r.mode===m?"selected":""}>${m}</option>`).join("")}
+      </select></td>
+      <td><select class="status-select ${sClass(r.statut)}" onchange="changeStatus('${r._key}',this)">
+        <option ${r.statut==="En attente"?"selected":""}>En attente</option>
+        <option ${r.statut==="Entretien"?"selected":""}>Entretien</option>
+        <option ${r.statut==="Réponse"?"selected":""}>Réponse</option>
+        <option ${r.statut==="Refus"?"selected":""}>Refus</option>
+      </select></td>
+      <td contenteditable="true" onblur="editCell('${r._key}','dateRep',this)" style="font-family:'DM Mono',monospace;font-size:0.72rem">${r.dateRep||""}</td>
+      <td class="link-cell">${r.url?`<a href="${r.url}" target="_blank">↗ Voir</a>`:'<span style="color:var(--muted);font-size:0.7rem">—</span>'}</td>
+      <td contenteditable="true" onblur="editCell('${r._key}','obs',this)" style="color:#555;font-size:0.78rem;max-width:200px">${r.obs||""}</td>
+      <td><button class="del-btn" onclick="deleteRow('${r._key}')">✕</button></td>
+    </tr>`).join("");
+}
+
+function updateStats() {
+  document.getElementById("stat-total").textContent = rows.length;
+  document.getElementById("stat-pending").textContent = rows.filter(r => r.statut === "En attente").length;
+  document.getElementById("stat-entretien").textContent = rows.filter(r => r.statut === "Entretien").length;
+  document.getElementById("stat-refus").textContent = rows.filter(r => r.statut === "Refus").length;
+}
+
+// ─── CRUD Firebase ────────────────────────────────────────────────────────────
+window.editCell = function(key, field, el) {
+  setSyncStatus("syncing", "Enregistrement…");
+  update(ref(db, `candidatures/${key}`), { [field]: el.innerText.trim() })
+    .then(() => setSyncStatus("connected", "Synchronisé ☁"))
+    .catch(() => setSyncStatus("error", "Erreur sauvegarde"));
+}
+
+window.changeStatus = function(key, el) {
+  el.className = `status-select ${sClass(el.value)}`;
+  setSyncStatus("syncing", "Enregistrement…");
+  update(ref(db, `candidatures/${key}`), { statut: el.value })
+    .then(() => setSyncStatus("connected", "Synchronisé ☁"))
+    .catch(() => setSyncStatus("error", "Erreur sauvegarde"));
+}
+
+window.deleteRow = function(key) {
+  if (!confirm("Supprimer cette candidature ?")) return;
+  setSyncStatus("syncing", "Suppression…");
+  remove(ref(db, `candidatures/${key}`))
+    .then(() => setSyncStatus("connected", "Synchronisé ☁"))
+    .catch(() => setSyncStatus("error", "Erreur suppression"));
+}
+
+// ─── Analyse annonce ──────────────────────────────────────────────────────────
+window.fetchAndFill = async function() {
+  const url = document.getElementById("f-url").value.trim();
+  if (!url) return;
+  const btn = document.getElementById("fetchBtn");
+  const status = document.getElementById("fetchStatus");
+  btn.disabled = true;
+  status.className = "fetch-status loading";
+  status.innerHTML = `<span class="spinner"></span> L'IA recherche l'annonce…`;
+  const siteHint = detectMode(url);
+  try {
+    const apiRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        system: `Tu es un expert en offres d'emploi françaises. Utilise ton outil de recherche web pour accéder à l'annonce.
+Réponds UNIQUEMENT avec un JSON valide sans backticks : {"poste":"","entreprise":"","contact":"","lieu":"","contrat":"","salaire":"","ref":"","mode":"","observations":""}
+contrat: CDI/CDD/Intérim/Stage/Alternance/Freelance · mode: LinkedIn/Indeed/France Travail/APEC/HelloWork/Site web/Cabinet RH/Autre`,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: `Annonce : ${url}\nSite : ${siteHint}` }]
+      })
+    });
+    if (!apiRes.ok) throw new Error(`Erreur API (${apiRes.status})`);
+    const data = await apiRes.json();
+    let jsonText = "";
+    for (const block of (data.content || [])) {
+      if (block.type === "text") { const m = block.text.match(/\{[\s\S]*?\}/); if (m) { jsonText = m[0]; break; } }
+    }
+    if (!jsonText) throw new Error("Pas de réponse JSON");
+    const info = JSON.parse(jsonText.replace(/```json|```/g, "").trim());
+    let filled = 0;
+    if (setField("f-poste", info.poste)) filled++;
+    if (setField("f-lieu", info.lieu)) filled++;
+    if (setField("f-salaire", info.salaire)) filled++;
+    if (setField("f-ref", info.ref)) filled++;
+    if (setField("f-obs", info.observations)) filled++;
+    const ev = info.contact ? `${info.entreprise||""} — ${info.contact}`.replace(/^ — /,"") : info.entreprise;
+    if (setField("f-entreprise", ev)) filled++;
+    setSelect("f-mode", info.mode || siteHint);
+    setSelect("f-contrat", info.contrat);
+    status.className = filled > 0 ? "fetch-status success" : "fetch-status error";
+    status.innerHTML = filled > 0 ? `✓ ${filled} informations extraites` : "⚠ Annonce introuvable — remplissez manuellement";
+  } catch(err) {
+    status.className = "fetch-status error";
+    status.innerHTML = `✗ ${err.message}`;
+  } finally { btn.disabled = false; }
+}
+
+// ─── Ajouter ──────────────────────────────────────────────────────────────────
+window.addRow = function() {
+  const poste = document.getElementById("f-poste").value.trim();
+  if (!poste) { alert("Le poste est obligatoire."); return; }
+  const contrat = document.getElementById("f-contrat").value;
+  const lieu = document.getElementById("f-lieu").value.trim();
+  const salaire = document.getElementById("f-salaire").value.trim();
+  let obs = document.getElementById("f-obs").value.trim();
+  const extras = [contrat&&`Contrat : ${contrat}`, lieu&&`Lieu : ${lieu}`, salaire&&`Salaire : ${salaire}`].filter(Boolean).join(" · ");
+  if (extras) obs = obs ? `${extras}\n${obs}` : extras;
+  setSyncStatus("syncing", "Enregistrement…");
+  push(rowsRef, {
+    date: document.getElementById("f-date").value,
+    ref: document.getElementById("f-ref").value.trim(),
+    poste, entreprise: document.getElementById("f-entreprise").value.trim(),
+    mode: document.getElementById("f-mode").value, statut: "En attente", dateRep: "",
+    url: document.getElementById("f-url").value.trim(),
+    obs, lieu, contrat, salaire, createdAt: Date.now()
+  }).then(() => { setSyncStatus("connected", "Synchronisé ☁"); closeModal(); })
+    .catch(() => setSyncStatus("error", "Erreur sauvegarde"));
+}
+
+// ─── CSV ──────────────────────────────────────────────────────────────────────
+window.exportCSV = function() {
+  const h = ["Date","Réf.","Poste","Entreprise","Mode","Statut","Date réponse","Lien","Observations"];
+  const csv = [h, ...rows.map(r => [r.date,r.ref,r.poste,r.entreprise,r.mode,r.statut,r.dateRep,r.url,r.obs].map(v=>`"${(v||"").replace(/"/g,'""')}"`))].map(r=>r.join(";")).join("\n");
+  const a = document.createElement("a");
+  a.href = "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent(csv);
+  a.download = "carnet-de-bord.csv";
+  a.click();
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+window.openModal = function() {
+  document.getElementById("f-date").value = new Date().toISOString().split("T")[0];
+  ["f-url","f-ref","f-poste","f-entreprise","f-lieu","f-salaire","f-obs"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("f-mode").value = "Site web";
+  document.getElementById("f-contrat").value = "";
+  document.getElementById("fetchStatus").className = "fetch-status";
+  document.getElementById("fetchStatus").innerHTML = "";
+  document.getElementById("fetchBtn").disabled = false;
+  document.getElementById("modalOverlay").classList.add("open");
+  setTimeout(() => document.getElementById("f-url").focus(), 100);
+}
+window.closeModal = function() { document.getElementById("modalOverlay").classList.remove("open"); }
+window.closeModalOutside = function(e) { if (e.target === document.getElementById("modalOverlay")) closeModal(); }
+document.getElementById("f-url").addEventListener("keydown", e => { if (e.key === "Enter") fetchAndFill(); });
+</script>
+</body>
+</html>
